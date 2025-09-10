@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Deteksi Ngantuk — Live Webcam</title>
+<style>
+  :root{
+    --bg:#071226;
+    --card: rgba(255,255,255,0.04);
+    --accent:#7afcff;
+    --accent2:#7c00ff;
+    --danger:#ff3b30;
+    --glass: rgba(255,255,255,0.03);
+    --glass-2: rgba(255,255,255,0.02);
+  }
+  html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Arial}
+  body{
+    background: radial-gradient(900px 600px at 10% 10%, rgba(124,0,255,0.12), transparent),
+                radial-gradient(800px 500px at 90% 90%, rgba(122,252,255,0.06), transparent),
+                var(--bg);
+    color:#e6f7ff;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+  }
+
+  /* Container */
+  .app {
+    width:1100px;
+    max-width:98vw;
+    height:640px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:18px;
+    box-shadow: 0 10px 40px rgba(3,6,20,0.7);
+    display:grid;
+    grid-template-columns: 720px 1fr;
+    gap:18px;
+    padding:18px;
+    position:relative;
+  }
+
+  /* Left: video area */
+  .video-wrap{
+    position:relative;
+    border-radius:12px;
+    overflow:hidden;
+    background:linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.45));
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  video{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    transform: scaleX(-1); /* mirror */
+  }
+  canvas#overlay{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    transform: scaleX(-1); /* match mirrored video */
+  }
+
+  /* Right: controls */
+  .panel{
+    padding:18px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  h1{margin:2px 0 8px;font-size:20px}
+  .status{
+    padding:10px;border-radius:10px;background:var(--glass);
+    display:flex;gap:10px;align-items:center;
+  }
+  .dot{width:12px;height:12px;border-radius:50%;}
+  .dot.ok{background:limegreen;box-shadow:0 0 12px limegreen}
+  .dot.warn{background:#ffb703;box-shadow:0 0 12px #ffb703}
+  .dot.alert{background:var(--danger);box-shadow:0 0 12px var(--danger)}
+
+  .controls{display:flex;gap:10px;margin-top:8px}
+  button{
+    border:0;padding:12px 14px;border-radius:10px;font-weight:600;cursor:pointer;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    color:#041018;box-shadow:0 8px 20px rgba(124,0,255,0.12);
+  }
+  button.ghost{background:transparent;color:#c8eefe;border:1px solid rgba(255,255,255,0.04)}
+  .slider{display:flex;gap:10px;align-items:center}
+
+  /* Intro overlay */
+  .intro{
+    position:absolute;inset:0;background:linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.7));
+    display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:30;
+    transition:opacity .6s ease, transform .6s ease;
+  }
+  .intro.hidden{opacity:0;pointer-events:none;transform:translateY(-20px)}
+  .logo{
+    font-size:28px;font-weight:800;letter-spacing:0.6px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;color:transparent;
+  }
+  .tag{opacity:0.85;margin-top:8px}
+  .splash {
+    margin-top:18px;width:320px;height:6px;border-radius:6px;background:linear-gradient(90deg,var(--accent),transparent);
+    animation: shimmer 2s infinite;
+  }
+  @keyframes shimmer{0%{transform:translateX(-70%)}100%{transform:translateX(70%)}}
+
+  /* small readout */
+  .readout{margin-top:14px;padding:12px;border-radius:10px;background:var(--glass-2);font-size:13px}
+  footer{margin-top:auto;font-size:12px;color:#a8dbe8;opacity:0.8}
+
+  /* warning overlay when alarm */
+  .alarm-badge{
+    position:absolute;left:50%;transform:translateX(-50%);top:18px;padding:10px 18px;border-radius:999px;
+    background: linear-gradient(90deg, rgba(255,59,48,0.95), rgba(255,140,120,0.9));
+    font-weight:800;color:white;z-index:50;
+    display:flex;gap:10px;align-items:center;box-shadow:0 10px 60px rgba(255,59,48,0.18);
+  }
+
+  /* small footer controls */
+  .small{font-size:13px;opacity:0.9}
+  .lang-switch{margin-top:10px}
+</style>
+</head>
+<body>
+  <div class="app" id="app">
+    <div class="video-wrap">
+      <div id="alarmBadge" class="alarm-badge" style="display:none">⚠️ ALARM</div>
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+
+      <!-- Intro overlay -->
+      <div class="intro" id="intro">
+        <div class="logo">DrowsyGuard</div>
+        <div class="tag" id="introTag">Sistem Deteksi Ngantuk — Real-time • Responsive • Keren</div>
+        <div class="splash"></div>
+        <div style="margin-top:18px;display:flex;gap:8px;">
+          <button id="startNow">Start</button>
+          <button id="demoNow" class="ghost">Lihat Demo</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h1 id="title">Deteksi Ngantuk — Live</h1>
+      <div class="status" id="status">
+        <div class="dot ok" id="statusDot"></div>
+        <div>
+          <div id="statusText">Menunggu kamera...</div>
+          <div style="font-size:12px;color:#bfeeff;margin-top:6px" id="subStatus">Ratio & durasi deteksi dioptimalkan untuk akurasi.</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="btnStart" class="ghost">Start Kamera</button>
+        <button id="btnStop" class="ghost">Stop Kamera</button>
+        <button id="btnMute" class="ghost">Matikan Alarm</button>
+      </div>
+
+      <div class="readout">
+        <div><b id="detLabel">Status deteksi:</b> <span id="detText">—</span></div>
+        <div style="margin-top:8px"><b id="earLabel">EAR (Left / Right):</b> <span id="earText">0 / 0</span></div>
+        <div style="margin-top:8px"><b id="timeLabel">Waktu mata tertutup:</b> <span id="closedMs">0</span> ms</div>
+      </div>
+
+      <div style="height:14px"></div>
+      <div class="small" id="thrLine"><span id="thrLabel">Threshold mata tertutup:</span> <span id="thrText">0.23</span> (EAR)</div>
+      <div style="height:8px"></div>
+      <div class="small" id="durLine"><span id="durLabel">Durasi minimal untuk alarm:</span> <span id="timeText">900</span> ms</div>
+
+      <div class="lang-switch">
+        🌐 <button id="langBtn" class="ghost">English</button>
+      </div>
+
+      <footer>Projek ini By <b>Paanz</b></footer>
+    </div>
+  </div>
+
+<script>
+/*
+  DrowsyGuard — Full single-file implementation
+  - MediaPipe FaceMesh via CDN
+  - EAR-based drowsiness detection
+  - WebAudio alarm
+  - Rotating follow-box + landmarks
+  - Multi-language (id/en)
+*/
+
+/* === CONFIG (bisa di-tweak) === */
+const CONFIG = {
+  EAR_THRESHOLD: 0.23,        // lebih kecil => lebih sensitif (mata dianggap tertutup)
+  CLOSED_TIME_FOR_ALARM: 900, // ms (matikan jika mata tertutup lebih lama dari ini)
+  SMOOTH_LANDMARKS: 0.6,      // 0..1 blending untuk smoothing landmarks
+  FPS: 30                     // target frame processing
+};
+
+/* === Bahasa (texts) === */
+const texts = {
+  id:{
+    title:"Deteksi Ngantuk — Live",
+    introTag:"Sistem Deteksi Ngantuk — Real-time • Responsive • Keren",
+    start:"Start Kamera", stop:"Stop Kamera", muteOn:"Matikan Alarm", muteOff:"Nyalakan Alarm",
+    statusWait:"Menunggu kamera...", statusCam:"Kamera aktif — memuat model deteksi...",
+    statusSearch:"Mencari wajah...", statusFace:"Wajah terdeteksi", statusStop:"Kamera dihentikan.",
+    subStatus:"Ratio & durasi deteksi dioptimalkan untuk akurasi.",
+    detLabel:"Status deteksi:", earLabel:"EAR (Kiri / Kanan):", timeLabel:"Waktu mata tertutup:",
+    thrLine:"Threshold mata tertutup:", durLine:"Durasi minimal untuk alarm:",
+    normal:"Normal / Mata terbuka", closed:"Mata tertutup", drowsy:"NGANTUK TERDETEKSI — Alarm!",
+    alarm:"⚠️ ALARM: NGANTUK Terdeteksi", btnStartIntro:"Start", btnDemoIntro:"Lihat Demo",
+    noFace:"Wajah tidak terdeteksi"
+  },
+  en:{
+    title:"Drowsiness Detection — Live",
+    introTag:"Drowsiness Detection System — Real-time • Responsive • Cool",
+    start:"Start Camera", stop:"Stop Camera", muteOn:"Mute Alarm", muteOff:"Unmute Alarm",
+    statusWait:"Waiting for camera...", statusCam:"Camera active — loading detection model...",
+    statusSearch:"Searching face...", statusFace:"Face detected", statusStop:"Camera stopped.",
+    subStatus:"Ratio & detection duration optimized for accuracy.",
+    detLabel:"Detection status:", earLabel:"EAR (Left / Right):", timeLabel:"Eye closed time:",
+    thrLine:"Closed-eye threshold:", durLine:"Minimum duration for alarm:",
+    normal:"Normal / Eyes open", closed:"Eyes closed", drowsy:"DROWSY DETECTED — Alarm!",
+    alarm:"⚠️ ALARM: Drowsiness Detected", btnStartIntro:"Start", btnDemoIntro:"See Demo",
+    noFace:"No face detected"
+  }
+};
+
+let currentLang = "id";
+
+/* === Helper math === */
+function dist(a,b){
+  const dx=a.x-b.x, dy=a.y-b.y;
+  return Math.hypot(dx,dy);
+}
+function lerp(a,b,t){ return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t, z:(a.z||0)+(b.z-(a.z||0))*t}; }
+
+/* === DOM refs === */
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d',{ willReadFrequently:false });
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const subStatus = document.getElementById('subStatus');
+const detText = document.getElementById('detText');
+const earText = document.getElementById('earText');
+const closedMsText = document.getElementById('closedMs');
+const thrLabel = document.getElementById('thrLabel');
+const thrText = document.getElementById('thrText');
+const durLabel = document.getElementById('durLabel');
+const timeText = document.getElementById('timeText');
+const alarmBadge = document.getElementById('alarmBadge');
+const intro = document.getElementById('intro');
+const btnStart = document.getElementById('btnStart');
+const btnStop = document.getElementById('btnStop');
+const btnMute = document.getElementById('btnMute');
+const langBtn = document.getElementById('langBtn');
+const startNow = document.getElementById('startNow');
+const demoNow = document.getElementById('demoNow');
+
+/* set numeric UI */
+thrText.textContent = CONFIG.EAR_THRESHOLD;
+timeText.textContent = CONFIG.CLOSED_TIME_FOR_ALARM;
+
+/* === Audio alarm (WebAudio) === */
+let audioCtx = null;
+let osc = null;
+let alarmGain = null;
+let alarmPlaying = false;
+let muted = false;
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  osc = audioCtx.createOscillator();
+  alarmGain = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.value = 520; // suara tinggi tajam
+  alarmGain.gain.value = 0;
+  osc.connect(alarmGain);
+  alarmGain.connect(audioCtx.destination);
+  osc.start();
+}
+
+function startAlarm(){
+  if(muted) return;
+  initAudio();
+  // resume context if suspended (some browsers require user gesture)
+  if(audioCtx.state === 'suspended'){
+    audioCtx.resume().catch(()=>{ /* ignore */ });
+  }
+  alarmGain.gain.cancelScheduledValues(audioCtx.currentTime);
+  alarmGain.gain.linearRampToValueAtTime(0.95, audioCtx.currentTime + 0.05);
+  alarmPlaying = true;
+  // variasi pitch
+  osc.frequency.setTargetAtTime(420 + Math.random()*300, audioCtx.currentTime, 0.1);
+}
+function stopAlarm(){
+  if(!audioCtx) return;
+  alarmGain.gain.cancelScheduledValues(audioCtx.currentTime);
+  alarmGain.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+  alarmPlaying = false;
+}
+
+/* === Smoothing storage === */
+let smoothLandmarks = null;
+
+/* === Camera start / stop === */
+let stream = null;
+let running = false;
+async function startCamera(){
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width:1280, height:720, facingMode: "user" }, audio:false });
+    video.srcObject = stream;
+    await video.play();
+    // resize canvas to video
+    overlay.width = video.videoWidth || 1280;
+    overlay.height = video.videoHeight || 720;
+    statusText.textContent = texts[currentLang].statusCam;
+    statusDot.className = 'dot ok';
+    running = true;
+    return true;
+  }catch(err){
+    console.error("Gagal akses kamera:",err);
+    statusText.textContent = "Gagal akses kamera: " + (err.message || err);
+    statusDot.className = 'dot alert';
+    running = false;
+    return false;
+  }
+}
+
+function stopCamera(){
+  if(stream){
+    stream.getTracks().forEach(t=>t.stop());
+    stream = null;
+  }
+  video.pause();
+  running = false;
+  statusText.textContent = texts[currentLang].statusStop;
+  statusDot.className = 'dot warn';
+  // bersihkan canvas
+  ctx.clearRect(0,0,overlay.width,overlay.height);
+  stopAlarm();
+  alarmBadge.style.display = 'none';
+  smoothLandmarks = null;
+}
+
+/* === EAR calculation (MediaPipe landmarks indices) ===
+   Menggunakan indeks dari MediaPipe FaceMesh:
+   left eye: [33,160,158,133,153,144]
+   right eye: [362,385,387,263,373,380]
+*/
+const LE = [33,160,158,133,153,144];
+const RE = [362,385,387,263,373,380];
+
+function computeEAR(landmarks, eyeIndices){
+  const p = i=>landmarks[eyeIndices[i]];
+  const A = dist(p(1), p(5));
+  const B = dist(p(2), p(4));
+  const C = dist(p(0), p(3));
+  if(!C || C === 0) return 1.0;
+  return (A + B) / (2.0 * C);
+}
+
+/* === Drawing utilities === */
+function drawLandmarks(landmarks){
+  // landmarks are normalized {x,y,z}
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.fillStyle = 'rgba(122,252,255,0.12)';
+  // draw small circles for specific landmarks (eyes)
+  for(let idx of [...LE, ...RE]){
+    const p = landmarks[idx];
+    if(!p) continue;
+    const cx = p.x * overlay.width, cy = p.y * overlay.height;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.0, 0, Math.PI*2);
+    ctx.fill();
+  }
+  // draw ear lines (eye outline)
+  ctx.strokeStyle = 'rgba(122,252,255,0.9)';
+  ctx.beginPath();
+  for(let i=0;i<LE.length;i++){
+    const p = landmarks[LE[i]];
+    if(!p) continue;
+    const x = p.x*overlay.width, y=p.y*overlay.height;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.beginPath();
+  for(let i=0;i<RE.length;i++){
+    const p = landmarks[RE[i]];
+    if(!p) continue;
+    const x = p.x*overlay.width, y=p.y*overlay.height;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+}
+
+/* === Face bounding box from landmarks === */
+function computeBBox(landmarks){
+  let minX=1,minY=1,maxX=0,maxY=0;
+  for(let p of landmarks){
+    if(!p) continue;
+    if(p.x<minX) minX=p.x;
+    if(p.y<minY) minY=p.y;
+    if(p.x>maxX) maxX=p.x;
+    if(p.y>maxY) maxY=p.y;
+  }
+  return {x:minX,y:minY,w:(maxX-minX),h:(maxY-minY)};
+}
+
+/* === MediaPipe FaceMesh integration === */
+(async function initFaceMesh(){
+  // dynamic load of mediapipe components (explicit file paths)
+  try{
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
+  }catch(e){
+    console.error("Gagal memuat library MediaPipe:", e);
+    statusText.textContent = "Gagal memuat library deteksi.";
+    statusDot.className = 'dot alert';
+    return;
+  }
+
+  // create FaceMesh
+  const faceMesh = new window.FaceMesh({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+  });
+  faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+  });
+
+  faceMesh.onResults(onResults);
+
+  // camera helper (from camera_utils)
+  let camera = null;
+  async function startPipeline(){
+    if(!running){
+      const ok = await startCamera();
+      if(!ok) return;
+    }
+    // ensure canvas size
+    overlay.width = video.videoWidth || overlay.width || 1280;
+    overlay.height = video.videoHeight || overlay.height || 720;
+
+    // create Camera utility (it will call faceMesh.send for each frame)
+    camera = new window.Camera(video, {
+      onFrame: async () => {
+        await faceMesh.send({image: video});
+      },
+      width: video.videoWidth || 1280,
+      height: video.videoHeight || 720,
+      fps: CONFIG.FPS
+    });
+    camera.start();
+    statusText.textContent = texts[currentLang].statusCam;
+    statusDot.className = 'dot ok';
+  }
+
+  // hook UI buttons
+  btnStart.onclick = startPipeline;
+  startNow.onclick = () => {
+    intro.classList.add('hidden');
+    startPipeline();
+  };
+  demoNow.onclick = () => {
+    intro.classList.add('hidden');
+    startPipeline();
+  };
+  btnStop.onclick = ()=> {
+    try{ if(camera) camera.stop(); }catch(e){}
+    stopCamera();
+    intro.classList.remove('hidden');
+  };
+  btnMute.onclick = ()=> {
+    muted = !muted;
+    btnMute.textContent = muted ? texts[currentLang].muteOff : texts[currentLang].muteOn;
+    if(muted) stopAlarm();
+  };
+
+  langBtn.onclick = ()=> setLang(currentLang==="id"?"en":"id");
+  setLang(currentLang);
+
+  // main onResults
+  let closedStart = null;
+  function onResults(results){
+    // clear canvas
+    ctx.clearRect(0,0,overlay.width,overlay.height);
+    if(!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0){
+      detText.textContent = texts[currentLang].noFace;
+      statusDot.className = 'dot warn';
+      statusText.textContent = texts[currentLang].statusSearch;
+      smoothLandmarks = null;
+      stopAlarm();
+      alarmBadge.style.display = 'none';
+      closedStart = null;
+      closedMsText.textContent = 0;
+      earText.textContent = "— / —";
+      return;
+    }
+    statusText.textContent = texts[currentLang].statusFace;
+    statusDot.className = 'dot ok';
+
+    const raw = results.multiFaceLandmarks[0]; // array of landmarks (normalized)
+    // smoothing
+    if(!smoothLandmarks) smoothLandmarks = raw.map(p=>({x:p.x,y:p.y,z:p.z||0}));
+    else {
+      for(let i=0;i<raw.length;i++){
+        smoothLandmarks[i] = lerp(smoothLandmarks[i], {x:raw[i].x,y:raw[i].y,z:raw[i].z||0}, CONFIG.SMOOTH_LANDMARKS);
+      }
+    }
+    const lm = smoothLandmarks;
+
+    // compute EAR for both eyes
+    const earL = computeEAR(lm, LE);
+    const earR = computeEAR(lm, RE);
+    earText.textContent = earL.toFixed(3) + " / " + earR.toFixed(3);
+
+    // avg ear
+    const ear = (earL + earR) / 2;
+    // closed logic
+    const now = performance.now();
+    if(ear < CONFIG.EAR_THRESHOLD){
+      if(closedStart === null) closedStart = now;
+      const closedDur = now - closedStart;
+      closedMsText.textContent = Math.round(closedDur);
+      detText.textContent = texts[currentLang].closed;
+      // if exceed duration -> alarm
+      if(closedDur >= CONFIG.CLOSED_TIME_FOR_ALARM){
+        detText.textContent = texts[currentLang].drowsy;
+        alarmBadge.style.display = 'flex';
+        alarmBadge.textContent = texts[currentLang].alarm;
+        // play alarm
+        if(!alarmPlaying && !muted) startAlarm();
+        statusDot.className = 'dot alert';
+      } else {
+        // not yet exceed duration, no alarm
+        if(alarmPlaying) stopAlarm();
+        alarmBadge.style.display = 'none';
+        statusDot.className = 'dot warn';
+      }
+    } else {
+      closedMsText.textContent = 0;
+      closedStart = null;
+      detText.textContent = texts[currentLang].normal;
+      if(alarmPlaying) stopAlarm();
+      alarmBadge.style.display = 'none';
+      statusDot.className = 'dot ok';
+    }
+
+    // draw landmarks + bounding box + follow-box
+    drawLandmarks(lm);
+
+    const bbox = computeBBox(lm);
+    // draw bounding rect
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,160,60,0.95)';
+    ctx.lineWidth = 3;
+    const x = bbox.x * overlay.width, y = bbox.y * overlay.height;
+    const w = bbox.w * overlay.width, h = bbox.h * overlay.height;
+    // draw rounded rect
+    roundRect(ctx, x-8, y-8, w+16, h+16, 12);
+    ctx.stroke();
+
+    // draw rotating box that follows head angle (use eyes centers to calculate angle)
+    const leftEyeCenter = centroid(LE.map(i=>lm[i]));
+    const rightEyeCenter = centroid(RE.map(i=>lm[i]));
+    const centerX = (leftEyeCenter.x + rightEyeCenter.x)/2 * overlay.width;
+    const centerY = (leftEyeCenter.y + rightEyeCenter.y)/2 * overlay.height;
+    const angle = Math.atan2((rightEyeCenter.y - leftEyeCenter.y), (rightEyeCenter.x - leftEyeCenter.x));
+    ctx.translate(centerX, centerY);
+    ctx.rotate(angle);
+    ctx.strokeStyle = 'rgba(122,252,255,0.6)';
+    ctx.lineWidth = 2;
+    const boxW = Math.max(80, w*0.6);
+    const boxH = Math.max(80, h*0.6);
+    ctx.strokeRect(-boxW/2, -boxH/2, boxW, boxH);
+    // subtle center dot
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fill();
+    ctx.rotate(-angle);
+    ctx.translate(-centerX, -centerY);
+    ctx.restore();
+
+    // small landmarks frame
+    ctx.fillStyle = 'rgba(122,252,255,0.03)';
+    ctx.fillRect(x-10,y-10,w+20,h+20);
+  }
+
+  // util functions for drawing
+  function roundRect(ctx, x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+  function centroid(arr){
+    let sx=0, sy=0, cnt=0;
+    for(let p of arr){ if(!p) continue; sx+=p.x; sy+=p.y; cnt++; }
+    if(cnt===0) return {x:0.5,y:0.5};
+    return {x: sx/cnt, y: sy/cnt};
+  }
+
+  // load helper: dynamic script loader
+  async function loadScript(src){
+    return new Promise((res, rej)=>{
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = ()=>res();
+      s.onerror = (e)=>rej(new Error('loadScript failed: ' + src));
+      document.head.appendChild(s);
+    });
+  }
+
+})(); // initFaceMesh
+
+/* === Language UI changer === */
+function setLang(lang){
+  currentLang = lang;
+  const t = texts[lang];
+  document.getElementById("title").textContent = t.title;
+  document.getElementById("introTag").textContent = t.introTag;
+  btnStart.textContent = t.start;
+  btnStop.textContent = t.stop;
+  btnMute.textContent = muted? t.muteOff : t.muteOn;
+  statusText.textContent = t.statusWait;
+  subStatus.textContent = t.subStatus;
+  document.getElementById("detLabel").textContent = t.detLabel;
+  document.getElementById("earLabel").textContent = t.earLabel;
+  document.getElementById("timeLabel").textContent = t.timeLabel;
+  thrLabel.textContent = t.thrLine;
+  durLabel.textContent = t.durLine;
+  alarmBadge.textContent = t.alarm;
+  document.getElementById("startNow").textContent = t.btnStartIntro;
+  document.getElementById("demoNow").textContent = t.btnDemoIntro;
+  langBtn.textContent = (lang==="id"?"English":"Indonesia");
+  // update numeric displays (in case CONFIG changed)
+  thrText.textContent = CONFIG.EAR_THRESHOLD;
+  timeText.textContent = CONFIG.CLOSED_TIME_FOR_ALARM;
+}
+
+/* done */
+</script>
+</body>
+</html>
